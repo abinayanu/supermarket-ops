@@ -1,100 +1,257 @@
 # Supermarket Ops Bot
 
-A Telegram bot for managing supermarket operations: billing, inventory, khata (credit), and analytics.
+A Telegram-based supermarket operations assistant for Indian kirana stores. The bot handles billing, inventory, GST, khata credit, payments, invoices, sales summaries, and weekly business analysis through natural-language Telegram conversations.
+
+## Telegram Bot
+
+**Bot:** `@abinaya_supermarket_bot`
 
 ## Features
 
-### High Priority (Completed)
+- **Product & Inventory**
+  - Search products using natural-language queries
+  - Handle product ambiguity with clarification
+  - Receive stock
+  - Check current stock
+  - Low-stock alerts
 
-- ✅ **Bill Editing**: Remove items, update quantities mid-bill
-- ✅ **Stock Query**: Check stock levels, get low-stock alerts
-- ✅ **Khata Full Flow**: Add credit, add payment/settlement, check balance, view history
-- ✅ **Payment Details**: Support for cash, UPI, card payments with UPI reference
-- ✅ **Preferences Memory**: Persist shop name, GSTIN, default UPI, default brands
-- ✅ **Weekly Sales PPTX**: Generate sales analysis deck with charts
-- ✅ **LLM Agent Harness**: Multi-step tool calls via Groq/GPT
-- ✅ **Stock Safety**: Atomic stock decrement on bill finalization
-- ✅ **Idempotency**: Prevent duplicate billing on retries
+- **Billing**
+  - Create draft bills
+  - Add multiple products and quantities
+  - Edit quantities
+  - Remove items
+  - Set customer reference
+  - Finalize bills only after confirmation
+  - Prevent overselling at the database/tool layer
+  - Idempotent bill finalization
+
+- **GST**
+  - Product-level GST rates
+  - HSN code support
+  - CGST + SGST calculation
+  - Rounded invoice totals
+  - GST invoice PDF generation
+
+- **Payments**
+  - CASH
+  - UPI with transaction reference
+  - CARD
+  - CREDIT / Khata
+
+- **Khata**
+  - Add customer credit
+  - Record settlements/payments
+  - Check customer balance
+  - Maintain transaction history
+
+- **Reports**
+  - Daily sales summary
+  - Sales split by payment mode
+  - Low-stock information
+  - Weekly sales analysis PPTX
+
+- **Preferences**
+  - Persist shop preferences in PostgreSQL
+  - Store values such as shop name, GSTIN, default UPI, and default brands
+
+## Safety & Reliability
+
+- Stock is locked with `FOR UPDATE` during finalization
+- Stock checks and decrements happen inside a database transaction
+- Overselling is rejected
+- Draft bills do not decrement stock
+- Stock is decremented only when a bill is finalized
+- Finalization requires explicit confirmation
+- Bill finalization uses idempotency keys to prevent duplicate billing
+- Core business rules are implemented in application services/tools rather than relying only on prompts
 
 ## Tech Stack
 
-- **Runtime**: Node.js + TypeScript
-- **LLM**: Groq API (GPT-OSS-120B)
-- **Database**: PostgreSQL
-- **Telegram**: Telegraf bot framework
-- **PDF**: PDFKit for invoices
-- **PPTX**: pptx package for reports
+- **Runtime:** Node.js
+- **Language:** TypeScript
+- **Agent:** LLM-based tool-calling agent
+- **LLM:** Groq API (`openai/gpt-oss-120b`)
+- **Database:** PostgreSQL
+- **Telegram:** Telegraf
+- **PDF:** PDFKit
+- **PPTX:** PptxGenJS
 
-## Project Structure
+## Architecture
+
+```text
+Telegram
+   |
+   v
+agent/telegram-bot.ts
+   |
+   v
+agent/llm-agent.ts
+   |
+   +--------------------+
+   |                    |
+   v                    v
+Agent Tools          Session / Memory
+   |                    |
+   v                    v
+Services             PostgreSQL
+   |
+   +--> Billing
+   +--> Stock
+   +--> Khata
+   +--> PDF Invoice
+   +--> PPTX Reports
+
+The LLM is responsible for understanding the user's request and orchestrating tools. Core business rules such as stock safety, GST calculations, transactions, and idempotency are enforced in the application and database layer.
+
+Project Structure
+supermarket-ops/
+├── agent/
+│   ├── llm-agent.ts
+│   ├── session.service.ts
+│   ├── telegram-bot.ts
+│   ├── tools.ts
+│   └── vercel-agent.ts
+│
+├── services/
+│   ├── billing.service.ts
+│   ├── db.ts
+│   ├── khata.service.ts
+│   ├── pdf-invoice.ts
+│   ├── pptx-report.ts
+│   ├── schema.sql
+│   └── stock.service.ts
+│
+├── .env
+├── .gitignore
+├── package.json
+├── package-lock.json
+└── README.md
+Tools
+Tool	Purpose
+createDraftBill	Start a new draft bill
+addLineItem	Add a product to a bill
+removeLineItem	Remove a bill item
+updateLineItemQuantity	Change item quantity
+setBillCustomer	Set customer reference
+finalizeBill	Finalize bill and deduct stock
+getProductStock	Check stock level
+getLowStockItems	Find low-stock products
+addKhataCredit	Add customer credit
+addKhataPayment	Record customer settlement
+getKhataBalance	Check customer balance
+setPreference	Persist shop preference
+getPreference	Retrieve shop preference
+generateInvoice	Generate GST invoice PDF
+generateAnalysisDeck	Generate weekly PPTX analysis
+Control Loop
+User sends a message in Telegram.
+telegram-bot.ts receives the message.
+llm-agent.ts interprets the request.
+The agent selects and calls the required tools.
+Tools execute business operations through PostgreSQL-backed services.
+Tool results are returned to the agent.
+The agent continues the control loop when additional actions are required.
+The final response or generated artifact is sent back through Telegram.
+Hard Parts Implementation
+Idempotency
+
+Each bill finalization uses an idempotency key. If the same key is submitted again, the existing finalized bill is returned instead of creating a duplicate transaction.
+
+Atomic Stock Decrement
+
+Bill finalization runs inside a database transaction. Products are locked using FOR UPDATE, all stock levels are checked before decrementing, and the transaction rolls back if any item cannot be fulfilled.
+
+Stock Safety
+
+Stock is not reduced while a bill is still a draft. Stock is reduced only after the bill is successfully finalized.
+
+Clarification Behavior
+
+When multiple products match a request, the agent asks the user to select the correct product before adding it to the bill or receiving stock.
+
+Confirmation
+
+Finalization and cancellation require explicit user confirmation to avoid accidental financial or inventory operations.
+
+Setup
+Requirements
+Node.js
+PostgreSQL
+Telegram Bot Token
+Groq API Key
+Install Dependencies
+npm install
+Environment Variables
+
+Create a .env file:
+
+TELEGRAM_BOT_TOKEN=your_telegram_bot_token
+GROQ_API_KEY=your_groq_api_key
+DATABASE_URL=postgresql://localhost/supermarket_ops
 
 
-## Tools Design
+Never commit .env or API keys to GitHub.
 
-The LLM agent uses these tools:
+Database Setup
 
-| Tool | Purpose |
-|------|---------|
-| `createDraftBill` | Start a new bill |
-| `addLineItem` | Add product to bill |
-| `removeLineItem` | Remove item from bill |
-| `updateLineItemQuantity` | Change quantity |
-| `setBillCustomer` | Link bill to khata customer |
-| `finalizeBill` | Complete bill, deduct stock |
-| `getProductStock` | Check stock level |
-| `getLowStockItems` | Get items below threshold |
-| `addKhataCredit` | Add credit to customer |
-| `addKhataPayment` | Add settlement/payment |
-| `getKhataBalance` | Check customer balance |
-| `getKhataHistory` | View transaction history |
-| `setPreference` | Save shop preference |
-| `getPreference` | Retrieve preference |
-| `generateInvoice` | Create GST PDF |
-| `generateAnalysisDeck` | Create PPTX report |
+Create the PostgreSQL database and apply the schema:
 
-## Control Loop
+psql -d supermarket_ops -f services/schema.sql
+TypeScript Check
+npx tsc --noEmit
+Run the Bot
+npx tsx agent/telegram-bot.ts
+Example Conversations
+Product Search and Billing
+User: Add 2 Maggi 70g
 
-1. Telegram message → `llm-agent.ts`
-2. LLM parses intent, selects tools
-3. Tools execute sequentially
-4. Results fed back to LLM
-5. Final response sent to Telegram
+Bot: Which Maggi would you like?
+1. Maggi 70g
+2. Maggi Masala 6-pack
 
-## Hard Parts Implementation
+User: 1
 
-### Idempotency
-- Each bill finalize has `idempotency_key`
-- Duplicate key returns existing bill
-- Prevents double stock deduction
+Bot: Added 2 Maggi 70g to the draft bill.
+Stock Query
+User: Show low stock items below 10
 
-### Atomic Stock Decrement
-- `finalizeBill` runs in transaction
-- Stock locked with `FOR UPDATE`
-- All items checked before any decrement
-- Rollback on any failure
+Bot: Returns active products whose current stock is below the requested threshold.
+Payment
+User: Finalize this bill with UPI reference TXN9999
 
-### Clarification Behavior
-- LLM asks "Which atta?" if multiple matches
-- Ambiguity logged to `shortcut_candidates`
-- Repeated resolutions become shortcuts
+Bot: Shows the bill details and asks for confirmation before finalization.
+Generated Artifacts
 
-## Setup
+The bot can generate real business artifacts through Telegram:
 
-1. Install dependencies: `npm install`
-2. Set env vars in `.env`:
-   - `TELEGRAM_BOT_TOKEN`
-   - `GROQ_API_KEY`
-   - `DATABASE_URL`
-3. Compile: `tsc ... --outDir dist`
-4. Run: `node dist/agent/telegram-bot.js`
+GST invoice PDF
+Weekly sales analysis PPTX
+Deployment
 
-## Demo Recording (Pending)
+The production bot handle is:
 
-Record 4-5 mins:
-- Stock-in → Bill → Edit → Oversell → Khata → Invoice PDF → PPTX → Preference persistence
+@abinaya_supermarket_bot
 
-## Deployment
+Required environment variables:
 
-Deploy to Render/Railway/Fly.io:
-- Set env vars
-- Ensure public URL for webhook
-- Bot username: `@your_bot_username`
+TELEGRAM_BOT_TOKEN
+GROQ_API_KEY
+DATABASE_URL
+
+PostgreSQL must use persistent storage in production.
+
+Demo Flow
+
+Recommended demonstration flow:
+
+Receive stock
+Search/select a product
+Create a multi-item bill
+Edit a quantity
+Demonstrate oversell protection
+Finalize with payment mode
+Generate invoice PDF
+Add/check Khata credit
+Show daily sales summary
+Generate weekly PPTX
+Demonstrate persistent preferences
