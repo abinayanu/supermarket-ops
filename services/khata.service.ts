@@ -68,6 +68,17 @@ export async function addSettlement(input: {
 }): Promise<{ transactionId: number }> {
   const customerKey = normalizeCustomerKey(input.customerName);
 
+  const existing = await query<{ id: number }>(
+    `SELECT id FROM khata_transactions
+     WHERE customer_key = $1
+     LIMIT 1`,
+    [customerKey]
+  );
+
+  if (existing.length === 0) {
+    throw new Error(`Khata customer "${input.customerName}" does not exist`);
+  }
+
   const rows = await query<{ id: number }>(
     `INSERT INTO khata_transactions (
       customer_name,
