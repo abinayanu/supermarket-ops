@@ -384,7 +384,30 @@ export async function toolGetDailySalesSummary(date?: string) {
     upiTotal: Number(row?.upi_total ?? 0),
     cardTotal: Number(row?.card_total ?? 0),
     billCount: Number(row?.bill_count ?? 0),
-    topItems: []
+    topItems: (await query<{
+  name: string;
+  quantity: string;
+  sales: string;
+}>(
+  `SELECT
+     p.name,
+     SUM(bi.quantity) AS quantity,
+     SUM(bi.line_subtotal) AS sales
+   FROM bills b
+   JOIN bill_items bi ON bi.bill_id = b.id
+   JOIN products p ON p.id = bi.product_id
+   WHERE b.status = 'finalized'
+     AND DATE(b.finalized_at) = $1
+     AND bi.status = 'active'
+   GROUP BY p.id, p.name
+   ORDER BY SUM(bi.quantity) DESC, SUM(bi.line_subtotal) DESC
+   LIMIT 5`,
+  [targetDate]
+)).map(item => ({
+  name: item.name,
+  quantity: Number(item.quantity),
+  sales: Number(item.sales)
+}))
   };
 }
 

@@ -155,13 +155,21 @@ export async function addLineItem(
     throw new Error(`Draft bill ${billId} not found`);
   }
 
-  const product = await query<{ id: string }>(
-    `SELECT id FROM products WHERE id = $1 AND is_active = true;`,
+  const product = await query<{ id: string; cost_price: string }>(
+    `SELECT id, cost_price FROM products WHERE id = $1 AND is_active = true;`,
     [productId]
   );
 
   if (product.length === 0) {
     throw new Error(`Active product ${productId} not found`);
+  }
+
+  const costPrice = Number(product[0].cost_price);
+
+  if (unitPrice < costPrice) {
+    throw new Error(
+      `Selling price ₹${unitPrice.toFixed(2)} cannot be below cost price ₹${costPrice.toFixed(2)}`
+    );
   }
 
   const lineSubtotal = Math.round(quantity * unitPrice * 100) / 100;
