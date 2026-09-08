@@ -36,8 +36,8 @@ export interface FinalizedBill {
   roundingAdjustment: number;
   totalAmount: number;
   finalizedAt: Date | null;
-  paymentMode?: 'cash' | 'upi' | 'card' | 'mixed';
-  upiReference?: string;
+paymentMode?: 'CASH' | 'UPI' | 'CARD' | 'CREDIT'; 
+ upiReference?: string;
 }
 
 interface BillRow {
@@ -87,7 +87,7 @@ function mapFinalizedBill(row: BillRow): FinalizedBill {
     roundingAdjustment: Number(row.rounding_adjustment),
     totalAmount: asNumber(row.total_amount),
     finalizedAt: row.finalized_at,
-    paymentMode: row.payment_mode as 'cash' | 'upi' | 'card' | 'mixed' | undefined,
+    paymentMode: row.payment_mode as 'CASH' | 'UPI' | 'CARD' | 'CREDIT' | undefined,
     upiReference: row.upi_reference ?? undefined
   };
 }
@@ -261,23 +261,25 @@ export async function finalizeBill(
   billId: string,
   idempotencyKey: string,
   createdBy: string = 'cli-agent',
-  paymentMode: 'cash' | 'upi' | 'card' | 'mixed' = 'cash',
+paymentMode: 'CASH' | 'UPI' | 'CARD' | 'CREDIT' = 'CASH',
   upiReference?: string
 ): Promise<FinalizedBill> {
   return withTransaction(async (client: PoolClient) => {
     const existingFinalized = await client.query<BillRow>(
       `
-        SELECT
-          id,
-          customer_ref,
-          status,
-          subtotal,
-          cgst_amount,
-          sgst_amount,
-          rounding_adjustment,
-          total_amount,
-          finalized_at
-        FROM bills
+  SELECT
+  id,
+  customer_ref,
+  status,
+  subtotal,
+  cgst_amount,
+  sgst_amount,
+  rounding_adjustment,
+  total_amount,
+  payment_mode,
+  upi_reference,
+  finalized_at
+FROM bills
         WHERE idempotency_key = $1
           AND status = 'finalized';
       `,
@@ -478,25 +480,25 @@ export async function finalizeBill(
   ]
 );
 
-    if (bill.customer_ref) {
-      const customerName = bill.customer_ref.trim();
-      const customerKey = normalizeCustomerKey(customerName);
+if (bill.customer_ref && paymentMode === 'CREDIT') {
+    const customerName = bill.customer_ref.trim();
+  const customerKey = normalizeCustomerKey(customerName);
 
-      await client.query(
-        `
-          INSERT INTO khata_transactions (
-            customer_name,
-            customer_key,
-            transaction_type,
-            amount,
-            related_bill_id,
-            created_by
-          )
-          VALUES ($1, $2, 'credit', $3, $4, $5);
-        `,
-        [customerName, customerKey, totalAmount, billId, createdBy]
-      );
-    }
+  await client.query(
+    `
+      INSERT INTO khata_transactions (
+        customer_name,
+        customer_key,
+        transaction_type,
+        amount,
+        related_bill_id,
+        created_by
+      )
+      VALUES ($1, $2, 'credit', $3, $4, $5);
+    `,
+    [customerName, customerKey, totalAmount, billId, createdBy]
+  );
+}
 
     return mapFinalizedBill(finalizedBillResult.rows[0]);
   });
@@ -508,17 +510,19 @@ export async function getBillById(
   const rows = await query<BillRow>(
     `
       SELECT
-        id,
-        customer_ref,
-        status,
-        subtotal,
-        cgst_amount,
-        sgst_amount,
-        rounding_adjustment,
-        total_amount,
-        finalized_at
-      FROM bills
-      WHERE id = $1;
+  id,
+  customer_ref,
+  status,
+  subtotal,
+  cgst_amount,
+  sgst_amount,
+  rounding_adjustment,
+  total_amount,
+  payment_mode,
+  upi_reference,
+  finalized_at
+FROM bills
+WHERE id = $1;
     `,
     [billId]
   );

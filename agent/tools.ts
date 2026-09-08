@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
-import { findProduct } from '../services/stock.service';
+import { findProduct, getLowStock } from '../services/stock.service';
+import { generateWeeklySalesPPTX } from '../services/pptx-report';
 import {
   createDraftBill,
   setBillCustomer,
@@ -10,6 +11,7 @@ import {
   updateLineItemQuantity
 } from '../services/billing.service';
 import { setPreference, getPreference } from './session.service';
+import { query } from '../services/db';
 import { generateInvoicePDF } from '../services/pdf-invoice';
 import { getBalance, addCredit, addSettlement } from '../services/khata.service';
 import { receiveStock } from '../services/stock.service';
@@ -106,18 +108,24 @@ export async function toolGetDraftBill(billId: string) {
 export async function toolFinalizeBill(
   billId: string,
   idempotencyKey: string,
-  chatId: number
+  chatId: number,
+  paymentMode: 'CASH' | 'UPI' | 'CARD' | 'CREDIT' = 'CASH',
+  upiReference?: string
 ) {
   const finalizedBill = await finalizeBill(
     billId,
+    idempotencyKey,
     `telegram-${chatId}`,
-    idempotencyKey
+    paymentMode,
+    upiReference
   );
 
   return {
     billId: finalizedBill.id,
     totalAmount: finalizedBill.totalAmount,
-    finalized: true
+    finalized: true,
+    paymentMode: finalizedBill.paymentMode,
+    upiReference: finalizedBill.upiReference
   };
 }
 
@@ -238,10 +246,17 @@ export async function toolGetStockLevel(productId: string) {
 }
 
 export async function toolGetLowStockItems(threshold: number = 10) {
-  // TODO: Implement in stock.service.ts
+  const items = await getLowStock(threshold);
+
   return {
     threshold,
-    items: []
+    items: items.map((item) => ({
+      productId: item.id,
+      name: item.name,
+      unit: item.unit,
+      currentStock: item.currentStock,
+      mrp: Number(item.mrp)
+    }))
   };
 }
 
@@ -331,14 +346,44 @@ const value = await getPreference(chatId, key);
 // ============ DAILY CLOSE ============
 
 export async function toolGetDailySalesSummary(date?: string) {
-  // TODO: Implement in billing.service.ts
+  const targetDate = date || new Date().toISOString().split('T')[0];
+
+  const result = await query<{
+    total_sales: string;
+    total_tax: string;
+    cash_total: string;
+    upi_total: string;
+    card_total: string;
+    bill_count: string;
+  }>(
+    `
+    SELECT
+      COALESCE(SUM(total_amount), 0) AS total_sales,
+      COALESCE(SUM(cgst_amount + sgst_amount), 0) AS total_tax,
+      COALESCE(SUM(CASE WHEN payment_mode = 'CASH'
+        THEN total_amount ELSE 0 END), 0) AS cash_total,
+      COALESCE(SUM(CASE WHEN payment_mode = 'UPI'
+        THEN total_amount ELSE 0 END), 0) AS upi_total,
+      COALESCE(SUM(CASE WHEN payment_mode = 'CARD'
+        THEN total_amount ELSE 0 END), 0) AS card_total,
+      COUNT(*) AS bill_count
+    FROM bills
+    WHERE status = 'finalized'
+      AND DATE(finalized_at) = $1
+    `,
+    [targetDate]
+  );
+
+  const row = result[0];
+
   return {
-    date: date || new Date().toISOString().split('T')[0],
-    totalSales: 0,
-    totalGST: 0,
-    cashTotal: 0,
-    upiTotal: 0,
-    cardTotal: 0,
+    date: targetDate,
+    totalSales: Number(row?.total_sales ?? 0),
+    totalGST: Number(row?.total_tax ?? 0),
+    cashTotal: Number(row?.cash_total ?? 0),
+    upiTotal: Number(row?.upi_total ?? 0),
+    cardTotal: Number(row?.card_total ?? 0),
+    billCount: Number(row?.bill_count ?? 0),
     topItems: []
   };
 }
@@ -349,10 +394,7 @@ export async function toolGenerateAnalysisDeck(
   chatId: number,
   period: string = 'week'
 ): Promise<Buffer> {
-  // TODO: Implement PPTX generation
-  return Buffer.from('PPTX placeholder');
-}
-
+  return generateWeeklySalesPPTX();
 }
 
 // Get daily sales
@@ -364,9 +406,7 @@ export async function toolGetDailySales(): Promise<{
   cardSales: number;
   billCount: number;
 }> {
-  const { pool } = await getDb();
-  
-  const result = await pool.query(
+  const result = await query(
     `
     SELECT 
       COALESCE(SUM(total_amount), 0) as total_sales,
@@ -381,7 +421,7 @@ export async function toolGetDailySales(): Promise<{
     `
   );
   
-  const row = result.rows[0];
+const row = result[0];
   return {
     totalSales: Number(row.total_sales),
     totalTax: Number(row.total_tax),

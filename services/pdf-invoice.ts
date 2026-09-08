@@ -61,7 +61,7 @@ async function fetchInvoiceData(billId: string): Promise<InvoiceData> {
     line_subtotal: string;
   }>(
     `SELECT p.name AS product_name, p.hsn_code, bi.quantity, 
-            bi.unit_price, bi.gst_rate, bi.line_subtotal
+        bi.unit_price, bi.gst_rate, bi.line_subtotal
      FROM bill_items bi
      JOIN products p ON p.id = bi.product_id
      WHERE bi.bill_id = $1 AND bi.status = 'active'

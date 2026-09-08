@@ -78,7 +78,7 @@ CREATE TABLE bills (
     sgst_amount         NUMERIC(10,2),
     rounding_adjustment NUMERIC(10,2) NOT NULL DEFAULT 0,
     total_amount        NUMERIC(10,2),
-    payment_mode        TEXT CHECK (payment_mode IN ('cash', 'upi', 'card', 'mixed')),
+    payment_mode TEXT CHECK (payment_mode IN ('CASH', 'UPI', 'CARD', 'CREDIT')),
     upi_reference       TEXT,
     telegram_chat_id    BIGINT,
     created_at          TIMESTAMPTZ NOT NULL DEFAULT now(),
