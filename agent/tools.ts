@@ -152,7 +152,7 @@ export async function toolReceiveStock(
   const ledgerId = await receiveStock(
     productId,
     quantity,
-    'purchase',
+    'receive',
     null,
     null,
     createdBy
